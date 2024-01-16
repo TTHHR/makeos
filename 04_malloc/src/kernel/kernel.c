@@ -2,19 +2,9 @@
 #include <stddef.h>
 #include "../lib/stdio.h"
 #include "../lib/serial.h"
-#include "../lib/malloc.h"
+#include "../lib/mm_malloc.h"
 #include "../boot/multiboot.h"
 #include "kernel.h"
-
-/* Check if the compiler thinks you are targeting the wrong operating system. */
-#if defined(__linux__)
-#error "You are not using a cross-compiler, you will most certainly run into trouble"
-#endif
-
-/* This tutorial will only work for the 32-bit ix86 targets. */
-#if !defined(__i386__)
-#error "This tutorial needs to be compiled with a ix86-elf compiler"
-#endif
 
 void delay(int milliseconds)
 {
@@ -39,33 +29,130 @@ uint32_t check_mode()
     );
     return result;
 }
+#ifdef KERNEL_DEBUG
+void printMultiBootInfo(multiboot_info_t *mbi)
+{
+    uint64_t tmp64;
+    if (mbi == NULL) {
+        printf("Multiboot info pointer is NULL.\n");
+        return;
+    }
+
+    printf("Multiboot Information:\n");
+    printf("  Flags: 0x%x\n", mbi->flags);
+    printf("  Memory Lower: %u KB\n", mbi->mem_lower);
+    printf("  Memory Upper: %u KB\n", mbi->mem_upper);
+    printf("  Boot Device: 0x%x\n", mbi->boot_device);
+    printf("  Command Line: %s\n", mbi->cmdline);
+
+    printf("  Modules:\n");
+    printf("    Count: %u\n", mbi->mods_count);
+    if (mbi->mods_count > 0) {
+        module_t *mods = (module_t *)mbi->mods_addr;
+        for (unsigned long i = 0; i < mbi->mods_count; ++i) {
+            printf("    Module %u:\n", i + 1);
+            printf("      Start Address: 0x%x\n", mods[i].mod_start);
+            printf("      End Address: 0x%x\n", mods[i].mod_end);
+            printf("      String: 0x%x\n", mods[i].string);
+            printf("      Reserved: 0x%x\n", mods[i].reserved);
+        }
+    }
+
+    printf("  Kernel Information:\n");
+    if (CHECK_FLAG(mbi->flags, MBF_AOUT)) {
+        printf("    AOUT Symbol Table:\n");
+        printf("      Tabsize: %u\n", mbi->u.aout_sym.tabsize);
+        printf("      Strsize: %u\n", mbi->u.aout_sym.strsize);
+        printf("      Addr: 0x%x\n", mbi->u.aout_sym.addr);
+        printf("      Reserved: 0x%x\n", mbi->u.aout_sym.reserved);
+    } else if (CHECK_FLAG(mbi->flags, MBF_ELF)) {
+        printf("    ELF Section Header Table:\n");
+        printf("      Num: %u\n", mbi->u.elf_sec.num);
+        printf("      Size: %u\n", mbi->u.elf_sec.size);
+        printf("      Addr: 0x%x\n", mbi->u.elf_sec.addr);
+        printf("      Shndx: %u\n", mbi->u.elf_sec.shndx);
+    }
+
+    printf("  Memory Maps:\n");
+    printf("    Length: %u\n", mbi->mmap_length);
+    if (mbi->mmap_length > 0) {
+        memory_map_t *mmap = (memory_map_t *)mbi->mmap;
+        while ((unsigned long)mmap < mbi->mmap + mbi->mmap_length) {
+            if (mmap->type == 1 || mmap->type == 3 || mmap->type == 4 || mmap->type == 5)
+            {
+            printf("    Entry:\n");
+            printf("      Size: %u\n", mmap->size);
+            tmp64=(mmap->base_addr_high<<32)+mmap->base_addr_low;
+            printf("      Base Address: 0x%x%x 0x%x\n", mmap->base_addr_high, mmap->base_addr_low,tmp64/1024);
+            tmp64=(mmap->length_high<<32)+mmap->length_low;
+            printf("      Length: 0x%x%x Bytes = %d KB\n", mmap->length_high, mmap->length_low,tmp64/1024);
+            printf("      Type: %u\n", mmap->type);
+            }
+            mmap = (memory_map_t *)((unsigned long)mmap + mmap->size + sizeof(mmap->size));
+        }
+    }
+}
+#endif
+void select_memory_region(multiboot_info_t* mbi, void** start, size_t* size) {
+    uint64_t tmp64;
+    if (mbi->mmap_length > 0) {
+        memory_map_t *mmap = (memory_map_t *)mbi->mmap;
+        while ((unsigned long)mmap < mbi->mmap + mbi->mmap_length) {
+            if (mmap->type == 1 || mmap->type == 3 || mmap->type == 4 || mmap->type == 5)
+            {
+            
+            tmp64=(mmap->length_high<<32)+mmap->length_low;
+                if(tmp64>mbi->mem_lower*1024)//大于第一块内存就用它
+                {
+                    *size=tmp64;
+                    tmp64=(mmap->base_addr_high<<32)+mmap->base_addr_low;
+                    *start=tmp64;
+                    #ifdef KERNEL_DEBUG
+                    tmp64=*size>1024*1024*1024?*size/1024/1024/1024:*size>1024*1024?*size/1024/1024:*size;
+                    printf("use mbi memory addr:0x%x \nuse mbi memory size: %d ",*start,tmp64);
+                    printf("%s \n",*size>1024*1024*1024?"GB":*size>1024*1024?"MB":"KB");
+                    #endif
+                    return;
+                }
+            }
+            mmap = (memory_map_t *)((unsigned long)mmap + mmap->size + sizeof(mmap->size));
+        }
+    }
+    else
+    {
+        printf("no memory info!\n");
+    }
+}
 MemoryManager mm;
 void kernel_main(unsigned long magic, unsigned long addr)
 {
     multiboot_info_t *mbi;
-    
-    unsigned long total_memory_kb = 0;
+    uint64_t memory_addr;
+    uint64_t total_memory;
     // 初始化串口
     init_serial();
     if (magic != MULTIBOOT_BOOTLOADER_MAGIC)
     {
-
         printf("Invalid magic number:%d\n", (unsigned)magic);
         return;
     }
     mbi = (multiboot_info_t *)addr;
-    if (CHECK_FLAG(mbi->flags, 0))
-    {
-        total_memory_kb = mbi->mem_lower + mbi->mem_upper;
-        if (total_memory_kb >= 1024)
-        {
-            printf("Memory size: %u MB\n", total_memory_kb / 1024);
-        }
-        else
-        {
-            printf("Memory size: %u KB\n", total_memory_kb);
-        }
-    }
+#ifdef KERNEL_DEBUG
+    printMultiBootInfo(mbi);
+#endif
+    //获取内存大小，但是这种方式可能有问题
+    // if (CHECK_FLAG(mbi->flags, 0))
+    // {
+    //     total_memory = mbi->mem_lower + mbi->mem_upper;
+    //     if (total_memory >= 1024)
+    //     {
+    //         printf("Memory size: %u MB\n", total_memory / 1024);
+    //     }
+    //     else
+    //     {
+    //         printf("Memory size: %u KB\n", total_memory);
+    //     }
+    // }
     uint32_t mode = check_mode();
 
     if (mode == 0)
@@ -78,11 +165,55 @@ void kernel_main(unsigned long magic, unsigned long addr)
         // 处于保护模式
         printf("run on protect mode!\n");
     }
-    unsigned long base_addr = (unsigned long)mbi->mmap->base_addr_low | ((unsigned long)mbi->mmap->base_addr_high << 32);
-    unsigned long mem_length = (unsigned long)mbi->mmap->length_low | ((unsigned long)mbi->mmap->length_high << 32);
-    printf("base_addr %x length %d!\n",base_addr,mem_length);
-    init_memory_manager(&mm, (void *)base_addr,mem_length);
-
+    select_memory_region(mbi,&memory_addr,&total_memory);
+    init_memory_manager(&mm, (void *)memory_addr,total_memory);
+#ifdef KERNEL_DEBUG
+    uint8_t checkStatus = 0;
+    #define memLength  1024*1024
+    checkStatus = 0;
+    uint8_t *requestMem = mm_malloc(memLength);
+    printf("get mem addr:%x\n", requestMem);
+    if (requestMem != NULL)
+    {
+        for (uint32_t i = 0; i < memLength; i++)
+        {
+            requestMem[i] = (i & 0xFF);
+        }
+        printf("write mem done\n");
+        for (uint32_t i = 0; i < memLength; i++)
+        {
+            if (requestMem[i] != (i & 0xFF))
+            {
+                printf("mem error at %x\n", &requestMem[i]);
+                checkStatus = 1;
+                break;
+            }
+        }
+        printf("mem check %s \n", checkStatus ? "fail" : "ok");
+        mm_free(requestMem);
+    }
+    else
+    {
+        printf("malloc mem fail!\n");
+    }
+    uint8_t memPtr[8196];
+    memset(memPtr,0,sizeof(memPtr));
+    for (uint32_t block = 0; block < sizeof(memPtr); block++)
+    {
+        memPtr[block] = mm_malloc(memLength);
+        if(memPtr[block]==NULL)
+        break;
+    }
+    for (uint32_t block = 0; block < sizeof(memPtr); block++)
+    {
+        if (memPtr[block] == 0)
+        {
+            printf("total get mem block %d\n", block);
+            break;
+        }
+        mm_free(memPtr[block]);
+    }
+#endif
     // 无限循环，防止程序退出
     while (1)
         ;

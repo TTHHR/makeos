@@ -5,7 +5,7 @@ CC := i686-elf-gcc
 AS := i686-elf-as
 LD := i686-elf-ld
 
-CFLAGS := -std=gnu99 -ffreestanding -O2 -Wall -Wextra
+CFLAGS := -std=gnu99 -ffreestanding -O2 -Wall -Wextra -D KERNEL_DEBUG
 
 # Directories
 SRC_DIR := src

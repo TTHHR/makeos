@@ -1,6 +1,31 @@
 #include "stdio.h"
 #include <stdarg.h>
 #include "serial.h"
+// 通过循环设置内存块的内容为指定值
+void *memset(void *dest, int value, size_t count)
+{
+     unsigned char *ptr = (unsigned char *)dest;
+     for (size_t i = 0; i < count; ++i)
+     {
+          ptr[i] = (unsigned char)value;
+     }
+     return dest;
+}
+
+// 通过循环复制内存块的内容
+void *memcpy(void *dest, const void *src, size_t count)
+{
+     unsigned char *dest_ptr = (unsigned char *)dest;
+     const unsigned char *src_ptr = (const unsigned char *)src;
+
+     for (size_t i = 0; i < count; ++i)
+     {
+          dest_ptr[i] = src_ptr[i];
+     }
+
+     return dest;
+}
+
 void itoa(char *buf, int base, int d)
 {
 
