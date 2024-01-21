@@ -123,7 +123,7 @@ void select_memory_region(multiboot_info_t* mbi, void** start, size_t* size) {
         printf("no memory info!\n");
     }
 }
-MemoryManager mm;
+
 void kernel_main(unsigned long magic, unsigned long addr)
 {
     multiboot_info_t *mbi;
@@ -166,21 +166,22 @@ void kernel_main(unsigned long magic, unsigned long addr)
         printf("run on protect mode!\n");
     }
     select_memory_region(mbi,&memory_addr,&total_memory);
-    init_memory_manager(&mm, (void *)memory_addr,total_memory);
+    init_memory_pool((void *)memory_addr, total_memory);
 #ifdef KERNEL_DEBUG
     uint8_t checkStatus = 0;
-    #define memLength  1024*1024
+    #define memLength  (1024*512)
     checkStatus = 0;
+    printf("total size %u remain size %u \n", mm_getTotalMemSize(), mm_getRemainingMemSize());
     uint8_t *requestMem = mm_malloc(memLength);
-    printf("get mem addr:%x\n", requestMem);
+    printf("get mem addr:%x endaddr:%x\n", requestMem,requestMem+memLength);
     if (requestMem != NULL)
     {
-        for (uint32_t i = 0; i < memLength; i++)
+        for (uint64_t i = 0; i < memLength; i++)
         {
-            requestMem[i] = (i & 0xFF);
+            ((uint8_t *)requestMem)[i] = (i & 0xFF);
         }
         printf("write mem done\n");
-        for (uint32_t i = 0; i < memLength; i++)
+        for (uint64_t i = 0; i < memLength; i++)
         {
             if (requestMem[i] != (i & 0xFF))
             {
@@ -196,13 +197,16 @@ void kernel_main(unsigned long magic, unsigned long addr)
     {
         printf("malloc mem fail!\n");
     }
-    uint8_t memPtr[8196];
-    memset(memPtr,0,sizeof(memPtr));
+    delay(1000);
+    size_t *memPtr[8196];
     for (uint32_t block = 0; block < sizeof(memPtr); block++)
     {
+        delay(500);
+        printf("Remainning mem size %u\n", mm_getRemainingMemSize());
         memPtr[block] = mm_malloc(memLength);
         if(memPtr[block]==NULL)
         break;
+        printf("malloc addr 0x%x\n",memPtr[block]);
     }
     for (uint32_t block = 0; block < sizeof(memPtr); block++)
     {
@@ -212,6 +216,7 @@ void kernel_main(unsigned long magic, unsigned long addr)
             break;
         }
         mm_free(memPtr[block]);
+        printf("Remainning mem size %u\n", mm_getRemainingMemSize());
     }
 #endif
     // 无限循环，防止程序退出

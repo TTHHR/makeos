@@ -41,10 +41,8 @@ $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
 pack: $(TARGET)
-	rm -rf iso/
 	mkdir -p $(GRUB_DIR)
-	cp $(TARGET) $(GRUB_DIR)/
-	cp grub.cfg $(GRUB_CFG)
+	cp src/boot/grub.cfg $(GRUB_CFG)
 	grub-mkrescue -o makeos.iso iso
 
 # Rule to clean the build

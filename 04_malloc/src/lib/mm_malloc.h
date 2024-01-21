@@ -3,20 +3,27 @@
 
 #include <stddef.h>
 #include <stdint.h>
-// 简单的内存块结构
-typedef struct {
+#define MEM_LIST_MEM 2048
+
+typedef struct mem_block
+{
     size_t size;
-    struct Block *next;
-} Block;
+    uint8_t used;
+    void *addr;
+    struct mem_block *next;
+} mem_block;
+typedef struct MemManager
+{
+    size_t *start;
+    size_t totalSize;
+    size_t usedSize;
+    mem_block *freeList;
+} MemManager;
 
-// 简单的内存管理结构
-typedef struct {
-    Block *free_list;
-} MemoryManager;
-
-void init_memory_manager(MemoryManager *mm, void *start, size_t size);
+void init_memory_pool(void *start, size_t size);
 void *mm_malloc(size_t size);
 void mm_free(void *ptr);
-uint64_t mm_getTotalMemSize();
+size_t mm_getTotalMemSize();
+size_t mm_getRemainingMemSize();
 
 #endif // MEMORY_MALLOC_H

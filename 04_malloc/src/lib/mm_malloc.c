@@ -1,71 +1,92 @@
 #include"mm_malloc.h"
-static MemoryManager *memoryManager;
-// 初始化内存管理器
-void init_memory_manager(MemoryManager *mm, void *start, size_t size) {
-    memoryManager=mm;
-    // 计算内存池的起始地址和大小，你可能需要根据实际需求修改这部分
-    void *memory_pool_start = start;
-    size_t memory_pool_size = size;
+// 内存池的起始地址和大小
+static MemManager manager;
+// 从内存池中分配内存块
+void *mm_malloc(size_t size)
+{
+    if (size == 0|| size> (manager.totalSize-manager.usedSize))
+    {
+        printf("mm_malloc fail s %d t %d u %d\n", size,manager.totalSize, manager.usedSize);
+        return NULL;
+    }
 
-    // 可以根据实际需求进行一些调整，例如减去一定的边界空间
-    memory_pool_size -= 1024*1024 /* 预留1M */;
-
-    // 创建初始的内存块
-    Block *initial_block = (Block *)memory_pool_start;
-    initial_block->size = memory_pool_size;
-    initial_block->next = NULL;
-
-    // 将初始的内存块添加到内存管理器的空闲列表中
-    memoryManager->free_list = initial_block;
-    memoryManager->free_list = (Block *)start;
-}
-
-// 简单的内存分配函数
-void *mm_malloc(size_t size) {
-    
-    // 简单的首次适应算法
-    Block *current = memoryManager->free_list;
-    Block *prev = NULL;
-
-    while (current) {
-        if (current->size >= size) {
-            // 找到足够大的内存块
-            if (current->size > size) {
-                // 将剩余的部分作为新的空闲块
-                Block *new_block = (Block *)((char *)current + size);
-                new_block->size = current->size - size;
-                new_block->next = current->next;
-                current->size = size;
-                current->next = new_block;
-            }
-
-            // 更新空闲块链表
-            if (prev) {
-                prev->next = current->next;
-            } else {
-                memoryManager->free_list = current->next;
-            }
-
-            return (void *)((char *)current + sizeof(Block));
+    mem_block *current = manager.freeList;
+    mem_block *prev;
+    while (current != NULL)//遍历链表
+    {
+        printf("current %x %u %u\n",current, current->used, current->size);
+        if(current->used==0&&current->size>size)//如果当前的block已经够了
+        {
+            break;
         }
-
         prev = current;
         current = current->next;
     }
+    if(current==NULL)//没有发现可用block
+    {
+        printf("mm_malloc fail no block\n");
+        return NULL;
+    }
+    prev = current + sizeof(mem_block);//指向下一个block
+    prev->size = current->size - size;
+    prev->next = NULL;
+    prev->used = 0;
+    prev->addr = current->addr + size;
 
-    // 没有足够大的空闲块
-    return NULL;
+    printf("next %x %u\n",prev->addr,prev->size);
+
+    current->used = 1;
+    current->size = size;
+    current->next = prev;
+
+    void *block = current->addr;
+
+    manager.usedSize += size;
+
+    printf("mm_malloc t %d u %d c 0x%x b 0x%x\n", manager.totalSize, manager.usedSize,current->addr,prev->addr);
+
+    return block;
 }
 
-// 简单的内存释放函数
-void mm_free(void *ptr) {
-    // 将块放回空闲块链表
-    Block *block = (Block *)((char *)ptr - sizeof(Block));
-    block->next = memoryManager->free_list;
-    memoryManager->free_list = block;
-}
-
-uint64_t mm_getTotalMemSize()
+// 初始化内存池
+void init_memory_pool(void *start, size_t size)
 {
-    return memoryManager->free_list->size;
+    //起始地址预留
+    if(size<MEM_LIST_MEM)
+    {
+        printf("!!!!!!!memory too lite!!!!!!!!!");
+    }
+    manager.totalSize = size-MEM_LIST_MEM;
+    manager.start = start;
+    manager.usedSize = 0;
+
+    mem_block *initial_block = (mem_block *)(start);
+    initial_block->size = manager.totalSize;
+    initial_block->used = 0;
+    initial_block->next = NULL;
+    initial_block->addr = start + MEM_LIST_MEM;
+    manager.freeList = initial_block;
+}
+// 伙伴系统的内存释放
+void mm_free(void *ptr)
+{
+    if (!ptr)
+    {
+        return;
+    }
+    mem_block *block = ptr;
+    block->used = 0;
+    //todo 合并内存
+}
+
+// 获取总内存大小
+size_t mm_getTotalMemSize()
+{
+    return manager.totalSize;
+}
+
+// 获取剩余内存大小
+size_t mm_getRemainingMemSize()
+{
+    return manager.totalSize - manager.usedSize;
 }
